@@ -617,17 +617,17 @@ int main(int argc, char **argv)
             //利用临时变量laserCloudTemp交换
             pcl::PointCloud<PointType>::Ptr laserCloudTemp = cornerPointsLessSharp;
             cornerPointsLessSharp = laserCloudCornerLast;
-            laserCloudCornerLast = laserCloudTemp;
+            laserCloudCornerLast = laserCloudTemp;//把当前帧弱角点保存为上一帧弱角点,为下一帧做准备
 
             laserCloudTemp = surfPointsLessFlat;
             surfPointsLessFlat = laserCloudSurfLast;
-            laserCloudSurfLast = laserCloudTemp;
+            laserCloudSurfLast = laserCloudTemp;//把当前帧弱面点保存为上一帧弱面点,为下一帧做准备
 
             laserCloudCornerLastNum = laserCloudCornerLast->points.size();
             laserCloudSurfLastNum = laserCloudSurfLast->points.size();
 
             // std::cout << "the size of corner last is " << laserCloudCornerLastNum << ", and the size of surf last is " << laserCloudSurfLastNum << '\n';
-            // kdtree设置当前帧，用来下一帧lidar odom使用
+            // kdtree设置当前帧，用来下一帧lidar odom使用   			设置 kdtree 为下次搜索做准备
             // 使用上一帧的点云更新kd-tree，如果是第一帧的话是直接将其保存为这个的
             kdtreeCornerLast->setInputCloud(laserCloudCornerLast);
             kdtreeSurfLast->setInputCloud(laserCloudSurfLast);
