@@ -109,17 +109,17 @@ std::queue<sensor_msgs::PointCloud2ConstPtr> fullPointsBuf;q_w_curr
 std::mutex mBuf;
 
 // undistort lidar point
-void TransformToStart(PointType const *const pi, PointType *const po)
+void TransformToStart(PointType const *const pi, PointType *const po)//得到当前帧点云中各点 转到当前扫描开始时得到的lidar坐标系下  （用于当前帧）
 {
     //interpolation ratio
     double s;
     if (DISTORTION)
-        s = (pi->intensity - int(pi->intensity)) / SCAN_PERIOD;
+        s = (pi->intensity - int(pi->intensity)) / SCAN_PERIOD;// intensity的整体减去整数部分,就是时间差,那么除以周期,也就是时间占比了
     else
         s = 1.0;
     //s = 1;
-    Eigen::Quaterniond q_point_last = Eigen::Quaterniond::Identity().slerp(s, q_last_curr);
-    Eigen::Vector3d t_point_last = s * t_last_curr;
+    Eigen::Quaterniond q_point_last = Eigen::Quaterniond::Identity().slerp(s, q_last_curr);//对于四元数，使用的是球面的线性插值。Eigen::Map<Eigen::Quaterniond> q_last_curr(para_q)，表示坐标变换的旋转增量
+    Eigen::Vector3d t_point_last = s * t_last_curr;//Eigen::Map<Eigen::Vector3d> t_last_curr(para_t)，表示坐标变换的位移增量
     Eigen::Vector3d point(pi->x, pi->y, pi->z);
     Eigen::Vector3d un_point = q_point_last * point + t_point_last;
 
@@ -131,7 +131,7 @@ void TransformToStart(PointType const *const pi, PointType *const po)
 
 // transform all lidar points to the start of the next frame
 
-void TransformToEnd(PointType const *const pi, PointType *const po)
+void TransformToEnd(PointType const *const pi, PointType *const po)//得到当前帧点云中各点 转到当前扫描结束时得到的lidar坐标系下 （用于上一帧）
 {
     // undistort point first
     pcl::PointXYZI un_point_tmp;
@@ -207,6 +207,9 @@ int main(int argc, char **argv)
 
     ros::Subscriber subLaserCloudFullRes = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_cloud_2", 100, laserCloudFullResHandler);
 
+
+    /*发布 根据odometry计算出来的当前帧在世界坐标系的位姿、corner_less_sharp特征点、surf_less_flat特征点、滤波后的点云*/
+
     // 注册发布上一帧的边线点话题
     ros::Publisher pubLaserCloudCornerLast = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_corner_last", 100);
     // 注册发布上一帧的平面点话题
@@ -214,7 +217,7 @@ int main(int argc, char **argv)
     // 注册发布全部有序点云话题，就是从scanRegistration订阅来的点云，未经其他处理
     ros::Publisher pubLaserCloudFullRes = nh.advertise<sensor_msgs::PointCloud2>("/velodyne_cloud_3", 100);
     // 注册发布帧间的位姿变换话题
-    ros::Publisher pubLaserOdometry = nh.advertise<nav_msgs::Odometry>("/laser_odom_to_init", 100);
+    ros::Publisher pubLaserOdometry = nh.advertise<nav_msgs::Odometry>("/laser_odom_to_init", 100);//发布的是Lidar里程计估计位姿到初始坐标系的变换
     // 注册发布帧间的平移运动话题
     ros::Publisher pubLaserPath = nh.advertise<nav_msgs::Path>("/laser_odom_path", 100);
 
@@ -276,6 +279,7 @@ int main(int argc, char **argv)
             laserCloudFullRes->clear();
             pcl::fromROSMsg(*fullPointsBuf.front(), *laserCloudFullRes);
             fullPointsBuf.pop();
+            //这三句：.clear()、.fromROSmsg与.pop()都处在循环之中，每次循环都会清空A，将B首元素添加到A，再删除B的首元素，这样就实现了B的遍历并且保证每次A中只有一个元素
             mBuf.unlock();//数据取出来后进行解锁
 
             TicToc t_whole;//计算整个激光雷达里程计的时间
@@ -335,9 +339,10 @@ int main(int argc, char **argv)
                     //构建一个非线性优化问题：以点i与直线lj的距离为代价函数，以位姿变换T(四元数表示旋转+位移t)为优化变量。下面是优化的程序。
                     for (int i = 0; i < cornerPointsSharpNum; ++i)//先进行线点的匹配
                     {
-                        TransformToStart(&(cornerPointsSharp->points[i]), &pointSel);// 运动补偿去畸变 
+                        TransformToStart(&(cornerPointsSharp->points[i]), &pointSel);//将当前帧的corner_sharp特征点从当前帧的Lidar坐标系下变换到上一帧的Lidar坐标系下（作为kdTree的查询点）
                         // 在上一帧所有角点（次极大边线点）构成的kdtree中寻找距离当前帧最近的一个点
-                        kdtreeCornerLast->nearestKSearch(pointSel, 1, pointSearchInd, pointSearchSqDis);
+                        kdtreeCornerLast->nearestKSearch(pointSel, 1, pointSearchInd, pointSearchSqDis);// kdtree中的点云是上一帧的corner_less_sharp(它包含了上一帧的角点和次角点)
+                        // //所以这是在上一帧的corner_less_sharp中寻找当前帧corner_sharp特征点O的最近邻点（记为A）
 
                         int closestPointInd = -1, minPointInd2 = -1;
                         if (pointSearchSqDis[0] < DISTANCE_SQ_THRESHOLD)//如果最近邻的corner特征点（次极大边线点）之间距离平方小于阈值，则最近邻点有效
@@ -349,11 +354,11 @@ int main(int argc, char **argv)
                             double minPointSqDis2 = DISTANCE_SQ_THRESHOLD;
                             //沿扫描线增加的方向搜索
                             // 寻找角点，在刚刚角点id上下分别继续寻找，目的是找到最近的角点，由于其按照线束进行排序，所以就是向上找
-                            for (int j = closestPointInd + 1; j < (int)laserCloudCornerLast->points.size(); ++j)// laserCloudCornerLast ������һ֡��corner_less_sharp������,������ȡ����ʱ��
-                            {                                                                                   // ����scan��˳����ȡ�ģ�����laserCloudCornerLast�еĵ�Ҳ�ǰ���scanID������˳���ŵ�
+                            for (int j = closestPointInd + 1; j < (int)laserCloudCornerLast->points.size(); ++j)
+                            {                                                                                   
                                 // if in the same scan line, continue
                                 // 不找同一根线束的
-                                if (int(laserCloudCornerLast->points[j].intensity) <= closestPointScanID)// intensity�������ִ�ŵ���scanID
+                                if (int(laserCloudCornerLast->points[j].intensity) <= closestPointScanID)//intensity整数部分存放的是scanID
                                     continue;
 
                                 // if not in nearby scans, end the loop
@@ -394,7 +399,7 @@ int main(int argc, char **argv)
                                                     (laserCloudCornerLast->points[j].z - pointSel.z) *
                                                         (laserCloudCornerLast->points[j].z - pointSel.z);
 
-                                if (pointSqDis < minPointSqDis2)// �ڶ�������ڵ���Ч�����µ�B
+                                if (pointSqDis < minPointSqDis2)//第二个最近邻点有效，更新点B1
                                 {
                                     // find nearer point
                                     minPointSqDis2 = pointSqDis;
@@ -556,10 +561,11 @@ int main(int argc, char **argv)
                     printf("solver time %f ms \n", t_solver.toc());
                 }
                 printf("optimization twice time %f \n", t_opt.toc());// 经过两次LM优化消耗的时间
-                
+
                 //经过2次点到线以及点到面的ICP点云配准之后，得到最优的位姿增量para_q和para_t，即，q_last_curr和t_last_curr
                 // 这里的w_curr 实际上是 w_last，即上一帧
                 // 更新世界坐标下的姿态，得到lidar odom位姿
+                ////用最新计算出的位姿增量，更新上一帧的位姿，得到当前帧的位姿，注意这里说的位姿都是世界坐标系下的
                 t_w_curr = t_w_curr + q_w_curr * t_last_curr;
                 q_w_curr = q_w_curr * q_last_curr;
             }
@@ -569,7 +575,7 @@ int main(int argc, char **argv)
 
             // publish odometry
             // 创建nav_msgs::Odometry消息类型，把信息导入，并发布
-            nav_msgs::Odometry laserOdometry;
+            nav_msgs::Odometry laserOdometry;                                                       //发布的是lidar odom更新的 帧间的  位姿变换  还是  位置？
             laserOdometry.header.frame_id = "/camera_init";
             laserOdometry.child_frame_id = "/laser_odom";
             laserOdometry.header.stamp = ros::Time().fromSec(timeSurfPointsLessFlat);
@@ -584,7 +590,8 @@ int main(int argc, char **argv)
             // geometry_msgs::PoseStamped消息是laserOdometry的部分内容
             geometry_msgs::PoseStamped laserPose;
             laserPose.header = laserOdometry.header;
-            laserPose.pose = laserOdometry.pose.pose;
+            laserPose.pose = laserOdometry.pose.pose;           
+            //nav_msgs::Path laserPath;
             laserPath.header.stamp = laserOdometry.header.stamp;
             laserPath.poses.push_back(laserPose);
             laserPath.header.frame_id = "/camera_init";
@@ -617,22 +624,23 @@ int main(int argc, char **argv)
             //利用临时变量laserCloudTemp交换
             pcl::PointCloud<PointType>::Ptr laserCloudTemp = cornerPointsLessSharp;
             cornerPointsLessSharp = laserCloudCornerLast;
-            laserCloudCornerLast = laserCloudTemp;//把当前帧弱角点保存为上一帧弱角点,为下一帧做准备
+            laserCloudCornerLast = laserCloudTemp;
 
             laserCloudTemp = surfPointsLessFlat;
             surfPointsLessFlat = laserCloudSurfLast;
-            laserCloudSurfLast = laserCloudTemp;//把当前帧弱面点保存为上一帧弱面点,为下一帧做准备
+            laserCloudSurfLast = laserCloudTemp;
 
             laserCloudCornerLastNum = laserCloudCornerLast->points.size();
             laserCloudSurfLastNum = laserCloudSurfLast->points.size();
 
             // std::cout << "the size of corner last is " << laserCloudCornerLastNum << ", and the size of surf last is " << laserCloudSurfLastNum << '\n';
-            // kdtree设置当前帧，用来下一帧lidar odom使用   			设置 kdtree 为下次搜索做准备
+            // kdtree设置当前帧，用来下一帧lidar odom使用
             // 使用上一帧的点云更新kd-tree，如果是第一帧的话是直接将其保存为这个的
             kdtreeCornerLast->setInputCloud(laserCloudCornerLast);
             kdtreeSurfLast->setInputCloud(laserCloudSurfLast);
             // 控制后端节点的执行频率，降频后给后端发送，只有整除时才发布结果
-            if (frameCount % skipFrameNum == 0)
+
+            if (frameCount % skipFrameNum == 0)   //每五帧发布一次话题给下一个建图过程：
             {
                 frameCount = 0;
                 // 发布上一帧的Corner点
