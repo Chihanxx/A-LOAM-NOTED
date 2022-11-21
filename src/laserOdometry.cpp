@@ -131,7 +131,7 @@ void TransformToStart(PointType const *const pi, PointType *const po)//得到当
 
 // transform all lidar points to the start of the next frame
 
-void TransformToEnd(PointType const *const pi, PointType *const po)//得到上一帧点云中各点 转到扫描结束时得到的lidar坐标系下 （用于上一帧））
+void TransformToEnd(PointType const *const pi, PointType *const po)//在这里，是等到算出来本次的帧间变换后，将变换应用到本帧的各点云中，匹配到扫面结束时刻，用于下次扫描的开始。
 {
     // undistort point first
     pcl::PointXYZI un_point_tmp;
@@ -565,7 +565,7 @@ int main(int argc, char **argv)
                 //经过2次点到线以及点到面的ICP点云配准之后，得到最优的位姿增量para_q和para_t，即，q_last_curr和t_last_curr
                 // 这里的w_curr 实际上是 w_last，即上一帧
                 // 更新世界坐标下的姿态，得到lidar odom位姿
-                ////用最新计算出的位姿增量，更新上一帧的位姿，得到当前帧的位姿，注意这里说的位姿都是世界坐标系下的
+                ////                                            用最新计算出的位姿增量，更新上一帧的位姿，得到当前帧的位姿，注意这里说的位姿都是世界坐标系下的！
                 t_w_curr = t_w_curr + q_w_curr * t_last_curr;
                 q_w_curr = q_w_curr * q_last_curr;
             }
@@ -575,7 +575,7 @@ int main(int argc, char **argv)
 
             // publish odometry
             // 创建nav_msgs::Odometry消息类型，把信息导入，并发布
-            nav_msgs::Odometry laserOdometry;                                                       //发布的是lidar odom更新的 帧间的  位姿变换  还是  位置？
+            nav_msgs::Odometry laserOdometry;                                                       //发布的是laserOdometry.cpp更新的 当前帧  较 世界坐标系下/初始起点 的位姿变换 
             laserOdometry.header.frame_id = "/camera_init";
             laserOdometry.child_frame_id = "/laser_odom";
             laserOdometry.header.stamp = ros::Time().fromSec(timeSurfPointsLessFlat);
