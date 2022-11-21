@@ -162,7 +162,7 @@ ros::Publisher pubLaserCloudSurround, pubLaserCloudMap, pubLaserCloudFullRes, pu
 
 nav_msgs::Path laserAfterMappedPath;
 
-//上一帧的Transform(增量)wmap_wodom * 本帧Odometry位姿wodom_curr，旨在为本帧Mapping位姿w_curr设置一个初始值
+//上一帧的Transform(增量)wmap_wodom   *     本帧Odometry位姿wodom_curr，     旨在为本帧Mapping位姿w_curr设置一个初始值
 //里程计位姿转化为地图位姿，作为后端初始估计
 void transformAssociateToMap()					//求解姿态变换矩阵
 {
@@ -228,7 +228,7 @@ void laserCloudFullResHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloud
 }
 
 //Odometry的回调函数
-//接受前端发送过来的里程计算法得到的位姿，并将位姿转换到世界坐标系下后发布
+//接受前端发送过来的里程计算法得到帧间的位姿变换矩阵 ，    并将位姿转换到世界坐标系下后发布
 // receive odomtry
 /*在函数laserOdometryHandler中，将laserOdometry节点和laserMapping节点计算的位姿结合，即可得到最终的轨迹odomAftMapped*/
 void laserOdometryHandler(const nav_msgs::Odometry::ConstPtr &laserOdometry)
@@ -242,7 +242,7 @@ void laserOdometryHandler(const nav_msgs::Odometry::ConstPtr &laserOdometry)
 	//将ros的消息,转成eigen的格式
 	Eigen::Quaterniond q_wodom_curr;
 	Eigen::Vector3d t_wodom_curr;
-	q_wodom_curr.x() = laserOdometry->pose.pose.orientation.x;
+	q_wodom_curr.x() = laserOdometry->pose.pose.orientation.x;//接受前端发送来的 帧间的 位姿变换 ，并将其命名为q_wodom_curr、t_wodom_curr
 	q_wodom_curr.y() = laserOdometry->pose.pose.orientation.y;
 	q_wodom_curr.z() = laserOdometry->pose.pose.orientation.z;
 	q_wodom_curr.w() = laserOdometry->pose.pose.orientation.w;
@@ -251,9 +251,9 @@ void laserOdometryHandler(const nav_msgs::Odometry::ConstPtr &laserOdometry)
 	t_wodom_curr.z() = laserOdometry->pose.pose.position.z;
 
 	// Odometry的位姿，旨在用Mapping位姿的初始值（也可以理解为预测值）来实时输出，进而实现LOAM整体的实时性
-	// 里程计坐标系位姿转化为地图坐标系位姿
 
-	/*前端里程计会定期向后端发送位姿,这个位姿是当前帧和里程计初始位姿直接的位姿(可以叫做T_odom_curr),在后端mapping模块中,需要以map坐标系为初始位姿,然后得到当前帧和map的位姿变换(可以叫做T_map_curr),如何进行这个两个位姿的转换呢?
+
+	/*前端里程计会定期向后端发送位姿,这个位姿是当前帧和里程计初始位姿直接的位姿(可以叫做T_odom_curr),在后端mapping模块中,需要以map
 	后端mapping模块就是解决这个问题,它会估计出里程计初始位姿和map的初始位姿的位姿变换(可以叫做T_map_odom),然后
 	T_map_curr = T_map_odom×T_odom_curr*/
 
@@ -647,7 +647,7 @@ void process()
 			int laserCloudSurfStackNum = laserCloudSurfStack->points.size();
 
 			printf("map prepare time %f ms\n", t_shift.toc());//打印位姿转换的时间
-			printf("map corner num %d  surf num %d \n", laserCloudCornerFromMapNum, laserCloudSurfFromMapNum);
+			printf("map corner num %d  surf num %d \n", laserCloudCornerFromMapNum, laserCloudSurfFromMapNum);//打印地图中角点和平面点的数量
 
 			//下面是后端Scan to Map的匹配优化。Submap子地图的网格与全部地图的网格进行匹配时
 			//这里的匹配方法如下
@@ -690,9 +690,12 @@ void process()
 					{
 						pointOri = laserCloudCornerStack->points[i];
 						//double sqrtDis = pointOri.x * pointOri.x + pointOri.y * pointOri.y + pointOri.z * pointOri.z;
+
+
 						// 需要注意的是submap中的点云都是world坐标系，而当前帧的点云都是Lidar坐标系，所以
 						// 在搜寻最近邻点时，先用预测的Mapping位姿w_curr，将Lidar坐标系下的特征点变换到world坐标系下
 						// 把当前点根据初值投到地图坐标系下去
+						
 						pointAssociateToMap(&pointOri, &pointSel);
 						// 地图中寻找和该点最近的5个点
 						// 在submap的corner特征点（target）中，寻找距离当前帧corner特征点（source）最近的5个点
@@ -861,7 +864,7 @@ void process()
 					options.gradient_check_relative_precision = 1e-4;
 					ceres::Solver::Summary summary;
 					ceres::Solve(options, &problem, &summary);
-					printf("mapping solver time %f ms \n", t_solver.toc());
+					printf("mapping solver time %f ms \n", t_solver.toc());	//打印解算时间  t_solver
 
 					//printf("time %f \n", timeLaserOdometry);
 					//printf("corner factor num %d surf factor num %d\n", corner_num, surf_num);
@@ -876,23 +879,27 @@ void process()
 			}
 
 			//更新mapping到Odometry线程的T
-			// 完成ICP（迭代2次）的特征匹配后，用最后匹配计算出的优化变量 w_curr，更新增量wmap_wodom，为下一次
-			// Mapping做准备
+			// 完成ICP（迭代2次）的特征匹配后，用最后匹配计算出的优化变量 w_curr，更新增量wmap_wodom，为下一次Mapping做准备
+			
 			//迭代结束更新相关的转移矩阵
-			transformUpdate();// 获取map到odom的变换Transform
+			transformUpdate();
+
+
+			TicToc t_add;//计算增加特征点的时间
 
 			//下面是一些后处理的工作，即将当前帧的特征点加入到全部地图栅格中，对全部地图栅格中的点进行降采样，
 			//刷新附近点云地图，刷新全部点云地图，发布当前帧的精确位姿和平移估计
-			TicToc t_add;//计算增加特征点的时间
+			
 			// 下面两个for loop的作用就是将当前帧的特征点云，逐点进行操作：转换到world坐标系并添加到对应位置的cube中
 			// 将优化后的当前帧边线点（角点）加到对应的边线点局部地图中去
 
 			// 将当前帧的（次极大边线点云，经过降采样后的）存入对应的边线点云的cube
 			for (int i = 0; i < laserCloudCornerStackNum; i++)
 			{
-								pointAssociateToMap(&laserCloudCornerStack->points[i], &pointSel);//把当前帧（已经过下采样）的点云转移到世界坐标系下
+				pointAssociateToMap(&laserCloudCornerStack->points[i], &pointSel);//把当前帧（已经过下采样）的点云转移到世界坐标系下---->pointSel
 
-				//按50的比例尺缩小，四舍五入，偏移laserCloudCen*的量，计算索引
+				//按50的比例尺缩小，四舍五入，偏移laserCloudCen*的量，计算索引	
+				// 计算本次的特征点的IJK坐标，进而确定添加到哪个cube中
 				int cubeI = int((pointSel.x + 25.0) / 50.0) + laserCloudCenWidth;//laserCloudCenWidth=10
 				int cubeJ = int((pointSel.y + 25.0) / 50.0) + laserCloudCenHeight;//laserCloudCenHeight=10
 				int cubeK = int((pointSel.z + 25.0) / 50.0) + laserCloudCenDepth;//laserCloudCenDepth=5
@@ -914,10 +921,11 @@ void process()
 				{
 					// 根据xyz的索引计算在一位数组中的索引
 					int cubeInd = cubeI + laserCloudWidth * cubeJ + laserCloudWidth * laserCloudHeight * cubeK;
-					laserCloudCornerArray[cubeInd]->push_back(pointSel);
+					laserCloudCornerArray[cubeInd]->push_back(pointSel);//根据索引将当前帧特征点加入到局部地图中去
 				}
 			}
 
+			// 面点也做同样的处理
 			// 将当前帧的（次极小平面点云，经过降采样后的）存入对应的平面点云的cube
 			for (int i = 0; i < laserCloudSurfStackNum; i++)
 			{
@@ -946,7 +954,7 @@ void process()
 
 			
 			TicToc t_filter;//计算降采样的时间
-			// 把当前帧涉及到的局部地图的珊格做一个下采样
+
 			// 因为新增加了点云，对之前已经存有点云的submap cube全部重新进行一次降采样
 			// 这个地方可以简单优化一下：如果之前的cube没有新添加点就不需要再降采样
 			// 这可以通过记录上一个循环中存入对应cubeInd的idx来实现
@@ -967,6 +975,7 @@ void process()
 			printf("filter time %f ms \n", t_filter.toc());//打印降采样的时间
 			
 			TicToc t_pub;//计算发布地图话题数据的时间
+
 			//publish surround map for every 5 frame
 			// 每隔5帧对外发布一下
 			if (frameCount % 5 == 0)
@@ -1020,7 +1029,8 @@ void process()
 
 			printf("mapping pub time %f ms \n", t_pub.toc());//打印发布地图话题数据的时间
 
-			printf("whole mapping time %f ms +++++\n", t_whole.toc());
+			printf("whole mapping time %f ms +++++\n", t_whole.toc());//打印在全部运行的时间
+
 			// 发布当前位姿
 			nav_msgs::Odometry odomAftMapped;
 			odomAftMapped.header.frame_id = "/camera_init";
@@ -1034,6 +1044,7 @@ void process()
 			odomAftMapped.pose.pose.position.y = t_w_curr.y();
 			odomAftMapped.pose.pose.position.z = t_w_curr.z();
 			pubOdomAftMapped.publish(odomAftMapped);
+
 			// 发布当前轨迹
 			geometry_msgs::PoseStamped laserAfterMappedPose;
 			laserAfterMappedPose.header = odomAftMapped.header;
@@ -1042,6 +1053,8 @@ void process()
 			laserAfterMappedPath.header.frame_id = "/camera_init";
 			laserAfterMappedPath.poses.push_back(laserAfterMappedPose);
 			pubLaserAfterMappedPath.publish(laserAfterMappedPath);
+
+			
 			// 发布tf
 			static tf::TransformBroadcaster br;
 			tf::Transform transform;
@@ -1100,17 +1113,19 @@ int main(int argc, char **argv)
 	pubLaserCloudMap = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_map", 100);
 	// 当前帧原始点云
 	pubLaserCloudFullRes = nh.advertise<sensor_msgs::PointCloud2>("/velodyne_cloud_registered", 100);
-	//经过Map to Map精估计优化后的当前帧位姿																	发布当前帧的精优变换？
+	//经过Map to Map精估计优化后的当前帧位姿																	发布当前帧的精优变换！
 	pubOdomAftMapped = nh.advertise<nav_msgs::Odometry>("/aft_mapped_to_init", 100);
 	// 将里程计坐标系位姿转化到世界坐标系位姿（地图坐标系），相当于位姿优化初值，即Odometry odom 到  map
 	pubOdomAftMappedHighFrec = nh.advertise<nav_msgs::Odometry>("/aft_mapped_to_init_high_frec", 100);
-	// 经过Map to Map精估计优化后的当前帧平移																	发布当前帧的精优变换？
+	// 经过Map to Map精估计优化后的当前帧平移																	发布当前帧的精优变换
 	pubLaserAfterMappedPath = nh.advertise<nav_msgs::Path>("/aft_mapped_path", 100);
 
 	//地图的数组进行 重置 分配地址
 	for (int i = 0; i < laserCloudNum; i++)
 	{
 		//后端地图的数组 用栅格的形式
+
+		//laserCloudCornerArray[5]中存放的数据为局部地图中第5个珊格中存放的是某个角点的世界坐标系信息		
 		laserCloudCornerArray[i].reset(new pcl::PointCloud<PointType>());
 		laserCloudSurfArray[i].reset(new pcl::PointCloud<PointType>());
 	}
