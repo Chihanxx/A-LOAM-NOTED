@@ -131,14 +131,14 @@ void TransformToStart(PointType const *const pi, PointType *const po)//得到当
 
 // transform all lidar points to the start of the next frame
 
-void TransformToEnd(PointType const *const pi, PointType *const po)//得到当前帧点云中各点 转到当前扫描结束时得到的lidar坐标系下 （用于上一帧）
+void TransformToEnd(PointType const *const pi, PointType *const po)//得到上一帧点云中各点 转到扫描结束时得到的lidar坐标系下 （用于上一帧））
 {
     // undistort point first
     pcl::PointXYZI un_point_tmp;
-    TransformToStart(pi, &un_point_tmp);
+    TransformToStart(pi, &un_point_tmp);//先转到上一帧开始的位置
 
     Eigen::Vector3d un_point(un_point_tmp.x, un_point_tmp.y, un_point_tmp.z);
-    Eigen::Vector3d point_end = q_last_curr.inverse() * (un_point - t_last_curr);//转到当前结束时刻下的点 = （转到当前开始时刻下的点-平移量）*旋转的逆
+    Eigen::Vector3d point_end = q_last_curr.inverse() * (un_point - t_last_curr);//转到上一帧结束时刻下的点 = （转到当前开始时刻下的点-平移量）*旋转的逆
 
     po->x = point_end.x();
     po->y = point_end.y();
