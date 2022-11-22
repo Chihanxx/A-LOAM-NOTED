@@ -253,7 +253,8 @@ void laserOdometryHandler(const nav_msgs::Odometry::ConstPtr &laserOdometry)
 	// Odometry的位姿，旨在用Mapping位姿的初始值（也可以理解为预测值）来实时输出，进而实现LOAM整体的实时性
 
 
-	/*前端里程计会定期向后端发送位姿,这个位姿是当前帧和里程计初始位姿直接的位姿(可以叫做T_odom_curr),在后端mapping模块中,需要以map
+	/*前端里程计会定期向后端发送位姿,这个位姿是当前帧和里程计初始位姿直接的位姿(可以叫做T_odom_curr),
+	在后端mapping模块中,需要以map坐标系为初始位姿,然后得到当前帧和map的位姿变换(可以叫做T_map_curr),	如何进行这个两个位姿的转换呢?
 	后端mapping模块就是解决这个问题,它会估计出里程计初始位姿和map的初始位姿的位姿变换(可以叫做T_map_odom),然后
 	T_map_curr = T_map_odom×T_odom_curr*/
 
@@ -1109,14 +1110,19 @@ int main(int argc, char **argv)
 	//注册发布点云
 	// submap（子地图）所在cube（栅格）中的点云，发布周围5帧的点云（降采样以后的）	
 	pubLaserCloudSurround = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_surround", 100);
+
 	//map地图
 	pubLaserCloudMap = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_map", 100);
 	// 当前帧原始点云
 	pubLaserCloudFullRes = nh.advertise<sensor_msgs::PointCloud2>("/velodyne_cloud_registered", 100);
+
 	//经过Map to Map精估计优化后的当前帧位姿																	发布当前帧的精优变换！
 	pubOdomAftMapped = nh.advertise<nav_msgs::Odometry>("/aft_mapped_to_init", 100);
-	// 将里程计坐标系位姿转化到世界坐标系位姿（地图坐标系），相当于位姿优化初值，即Odometry odom 到  map
+
+	// 将里程计坐标系位姿转化到世界坐标系位姿（地图坐标系），mapping输出的1Hz位姿，odometry输出的10Hz位姿，整合成10Hz作为最终结果
+	//相当于位姿优化初值，即 odom 到  map
 	pubOdomAftMappedHighFrec = nh.advertise<nav_msgs::Odometry>("/aft_mapped_to_init_high_frec", 100);
+
 	// 经过Map to Map精估计优化后的当前帧平移																	发布当前帧的精优变换
 	pubLaserAfterMappedPath = nh.advertise<nav_msgs::Path>("/aft_mapped_path", 100);
 
